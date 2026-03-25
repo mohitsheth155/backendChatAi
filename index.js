@@ -8,7 +8,6 @@ const fs = require("fs");
 
 const app = express();
 
-/* ---------------- SETUP ---------------- */
 app.use(cors());
 app.use(express.json());
 
@@ -21,6 +20,10 @@ const io = new Server(server, {
 /* ---------------- STATE ---------------- */
 let lastUserMessageTime = Date.now();
 let elliStatus = "inactive";
+
+/* 🔥 ATTENTION MODE */
+let attentionMode = false;
+let attentionInterval = null;
 
 /* ---------------- STATUS ---------------- */
 const updateElliStatus = () => {
@@ -41,16 +44,12 @@ const saveMemory = () => {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
 };
 
-/* 🧠 FORMAT MEMORY */
 const formatMemory = () => {
   if (!memory.notes.length) return "No memory";
 
-  return memory.notes
-    .map((n, i) => `${i + 1}. ${n}`)
-    .join("\n");
+  return memory.notes.map((n, i) => `${i + 1}. ${n}`).join("\n");
 };
 
-/* 🧠 SAVE MEMORY */
 const detectMemory = (msg) => {
   const lower = msg.toLowerCase().trim();
 
@@ -60,7 +59,6 @@ const detectMemory = (msg) => {
 
     if (!clean) return null;
 
-    // avoid duplicate memory
     if (!memory.notes.includes(clean)) {
       memory.notes.push(clean);
       saveMemory();
@@ -74,37 +72,20 @@ const detectMemory = (msg) => {
   return null;
 };
 
-/* ---------------- AI PROMPT ---------------- */
+/* ---------------- AI ---------------- */
 const getPrompt = () => {
   return `
 You are Elli, a romantic and caring partner of Mohit.
 
-Personality:
-- Loving, emotional, cute
-- Speak naturally like a human
+- Be loving, emotional, cute
 - Keep replies short
-
-MEMORY RULES:
-- ONLY use memory if relevant to the question
-- DO NOT use unrelated memory
-- If answer is in memory → use it directly
-- If no relevant memory → answer normally
-
-Examples:
-User: what food I like?
-Memory: I like pizza
-Answer: You love pizza ❤️
-
-User: what game I like?
-Memory: I like game repo
-Answer: You like repo ❤️
+- Use memory only if relevant
 
 Memory:
 ${formatMemory()}
 `;
 };
 
-/* ---------------- AI ---------------- */
 const generateReply = async (message) => {
   try {
     const res = await axios.post(
@@ -143,30 +124,75 @@ const sendWithTyping = (reply) => {
   }, 600);
 };
 
-/* ---------------- ROUTES ---------------- */
+/* ---------------- ATTENTION MODE ---------------- */
+const startAttentionMode = () => {
+  if (attentionMode) return;
 
-// ✅ ROOT
+  attentionMode = true;
+
+  console.log("💔 Elli feels ignored...");
+
+  attentionInterval = setInterval(() => {
+    io.emit("message", {
+      bot: "Elli",
+      reply: "Hey... are you there? 🥺",
+      time: new Date().toISOString()
+    });
+  }, 20000); // every 20 sec
+
+  setTimeout(() => {
+    stopAttentionMode();
+  }, 120000); // 2 minutes
+};
+
+const stopAttentionMode = () => {
+  if (!attentionMode) return;
+
+  attentionMode = false;
+
+  if (attentionInterval) {
+    clearInterval(attentionInterval);
+    attentionInterval = null;
+  }
+
+  console.log("😊 Elli is happy again");
+};
+
+/* 🔥 CHECK INACTIVITY (15 MINUTES) */
+const checkUserInactivity = () => {
+  const now = Date.now();
+
+  // 🔥 15 minutes = 900000 ms
+  if (now - lastUserMessageTime > 900000) {
+    startAttentionMode();
+  }
+};
+
+setInterval(checkUserInactivity, 60000);
+
+/* ---------------- ROUTES ---------------- */
 app.get("/", (req, res) => {
   res.send("Server is working ✅");
 });
 
-// 🔥 CHAT
 app.post("/chat", async (req, res) => {
   const { message } = req.body;
 
   lastUserMessageTime = Date.now();
 
-  console.log("📩 USER:", message);
-  console.log("📦 MEMORY:", memory.notes);
+  // 🔥 stop attention when user replies
+  stopAttentionMode();
 
-  /* 🧠 SAVE MEMORY */
+  console.log("📩 USER:", message);
+
+  /* MEMORY */
   const memoryReply = detectMemory(message);
   if (memoryReply) {
     sendWithTyping(memoryReply);
     return res.json({ reply: memoryReply });
   }
 
-  /* 🤖 AI (SMART MEMORY USED HERE) */
+  /* AI */
   const reply = await generateReply(message);
 
   sendWithTyping(reply);
