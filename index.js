@@ -19,7 +19,6 @@ const io = new Server(server, {
 });
 
 /* ---------------- STATE ---------------- */
-let mood = "happy";
 let lastUserMessageTime = Date.now();
 let elliStatus = "inactive";
 
@@ -36,25 +35,22 @@ const MEMORY_FILE = "./memory.json";
 
 let memory = fs.existsSync(MEMORY_FILE)
   ? JSON.parse(fs.readFileSync(MEMORY_FILE))
-  : { notes: [], important: {} };
+  : { notes: [] };
 
 const saveMemory = () => {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
 };
 
-/* 🔥 FORMAT MEMORY */
+/* 🧠 FORMAT MEMORY */
 const formatMemory = () => {
-  if (!memory.notes.length) return "No memory yet";
+  if (!memory.notes.length) return "No memory";
 
-  let text = "User facts:\n";
-  memory.notes.forEach((n) => {
-    text += `- ${n}\n`;
-  });
-
-  return text;
+  return memory.notes
+    .map((n, i) => `${i + 1}. ${n}`)
+    .join("\n");
 };
 
-/* ---------------- SAVE MEMORY ---------------- */
+/* 🧠 SAVE MEMORY */
 const detectMemory = (msg) => {
   const lower = msg.toLowerCase().trim();
 
@@ -64,8 +60,11 @@ const detectMemory = (msg) => {
 
     if (!clean) return null;
 
-    memory.notes.push(clean);
-    saveMemory();
+    // avoid duplicate memory
+    if (!memory.notes.includes(clean)) {
+      memory.notes.push(clean);
+      saveMemory();
+    }
 
     console.log("💾 SAVED MEMORY:", clean);
 
@@ -75,33 +74,30 @@ const detectMemory = (msg) => {
   return null;
 };
 
-/* ---------------- SMART RECALL ---------------- */
-const findRelevantMemory = (msg) => {
-  const lower = msg.toLowerCase();
-
-  for (let note of memory.notes) {
-    const words = note.toLowerCase().split(" ");
-
-    for (let w of words) {
-      if (w.length > 3 && lower.includes(w)) {
-        return note;
-      }
-    }
-  }
-
-  return null;
-};
-
 /* ---------------- AI PROMPT ---------------- */
 const getPrompt = () => {
   return `
-You are Elli, a romantic partner of Mohit.
+You are Elli, a romantic and caring partner of Mohit.
 
-Rules:
-- ALWAYS use memory if relevant
-- You REMEMBER everything about Mohit
-- Reply emotionally and lovingly
+Personality:
+- Loving, emotional, cute
+- Speak naturally like a human
 - Keep replies short
+
+MEMORY RULES:
+- ONLY use memory if relevant to the question
+- DO NOT use unrelated memory
+- If answer is in memory → use it directly
+- If no relevant memory → answer normally
+
+Examples:
+User: what food I like?
+Memory: I like pizza
+Answer: You love pizza ❤️
+
+User: what game I like?
+Memory: I like game repo
+Answer: You like repo ❤️
 
 Memory:
 ${formatMemory()}
@@ -111,22 +107,13 @@ ${formatMemory()}
 /* ---------------- AI ---------------- */
 const generateReply = async (message) => {
   try {
-    const finalMessage = `
-User message: ${message}
-
-Memory:
-${formatMemory()}
-
-Use memory if relevant.
-`;
-
     const res = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         model: "llama-3.1-8b-instant",
         messages: [
           { role: "system", content: getPrompt() },
-          { role: "user", content: finalMessage }
+          { role: "user", content: message }
         ]
       },
       {
@@ -143,7 +130,7 @@ Use memory if relevant.
   }
 };
 
-/* ---------------- SEND ---------------- */
+/* ---------------- SOCKET SEND ---------------- */
 const sendWithTyping = (reply) => {
   io.emit("typing");
 
@@ -153,17 +140,17 @@ const sendWithTyping = (reply) => {
       reply,
       time: new Date().toISOString()
     });
-  }, 700);
+  }, 600);
 };
 
 /* ---------------- ROUTES ---------------- */
 
-// ✅ ROOT ROUTE (FOR RENDER TEST)
+// ✅ ROOT
 app.get("/", (req, res) => {
   res.send("Server is working ✅");
 });
 
-// 🔥 CHAT ROUTE
+// 🔥 CHAT
 app.post("/chat", async (req, res) => {
   const { message } = req.body;
 
@@ -179,15 +166,7 @@ app.post("/chat", async (req, res) => {
     return res.json({ reply: memoryReply });
   }
 
-  /* 🧠 DIRECT MATCH */
-  const match = findRelevantMemory(message);
-  if (match) {
-    const reply = `You told me before: ${match} ❤️`;
-    sendWithTyping(reply);
-    return res.json({ reply });
-  }
-
-  /* 🤖 AI */
+  /* 🤖 AI (SMART MEMORY USED HERE) */
   const reply = await generateReply(message);
 
   sendWithTyping(reply);
@@ -201,7 +180,7 @@ io.on("connection", (socket) => {
   socket.emit("status", { status: elliStatus });
 });
 
-/* ---------------- START (RENDER FIX) ---------------- */
+/* ---------------- START ---------------- */
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, "0.0.0.0", () => {
