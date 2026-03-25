@@ -19,6 +19,15 @@ const io = new Server(server, {
 let lastUserMessageTime = Date.now();
 let elliStatus = "inactive";
 
+/* 🔥 RANDOM ATTENTION TIMER */
+let nextAttentionTime = getRandomTime();
+
+function getRandomTime() {
+  const min = 300000;   // 5 min
+  const max = 1200000;  // 20 min
+  return Math.floor(Math.random() * (max - min) + min);
+}
+
 /* ---------------- STATUS ---------------- */
 setInterval(() => {
   elliStatus =
@@ -101,7 +110,7 @@ const send = (msg) => {
   });
 };
 
-/* ---------------- ATTENTION ---------------- */
+/* ---------------- ATTENTION MODE ---------------- */
 let attentionInterval;
 
 const startAttention = () => {
@@ -119,8 +128,14 @@ const stopAttention = () => {
   attentionInterval = null;
 };
 
+/* 🔥 RANDOM INACTIVITY CHECK */
 setInterval(() => {
-  if (Date.now() - lastUserMessageTime > 900000) startAttention();
+  if (Date.now() - lastUserMessageTime > nextAttentionTime) {
+    startAttention();
+
+    // generate new random time
+    nextAttentionTime = getRandomTime();
+  }
 }, 60000);
 
 /* ---------------- AUTO CHAT ---------------- */
@@ -171,10 +186,7 @@ setInterval(() => {
 }, 3600000);
 
 /* ---------------- REMINDER ---------------- */
-
 const parseTime = (msg) => {
-  const now = new Date();
-
   const inMatch = msg.match(/in (\d+)\s?(minute|minutes|min|hour|hours)/i);
   if (inMatch) {
     const val = parseInt(inMatch[1]);
@@ -186,7 +198,6 @@ const parseTime = (msg) => {
 
     return new Date(Date.now() + ms);
   }
-
   return null;
 };
 
