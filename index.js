@@ -46,7 +46,6 @@ const saveMemory = () => {
 
 const formatMemory = () => {
   if (!memory.notes.length) return "No memory";
-
   return memory.notes.map((n, i) => `${i + 1}. ${n}`).join("\n");
 };
 
@@ -63,8 +62,6 @@ const detectMemory = (msg) => {
       memory.notes.push(clean);
       saveMemory();
     }
-
-    console.log("💾 SAVED MEMORY:", clean);
 
     return "I’ll remember that ❤️";
   }
@@ -130,19 +127,15 @@ const startAttentionMode = () => {
 
   attentionMode = true;
 
-  console.log("💔 Elli feels ignored...");
-
   attentionInterval = setInterval(() => {
     io.emit("message", {
       bot: "Elli",
       reply: "Hey... are you there? 🥺",
       time: new Date().toISOString()
     });
-  }, 20000); // every 20 sec
+  }, 20000);
 
-  setTimeout(() => {
-    stopAttentionMode();
-  }, 120000); // 2 minutes
+  setTimeout(stopAttentionMode, 120000);
 };
 
 const stopAttentionMode = () => {
@@ -154,21 +147,108 @@ const stopAttentionMode = () => {
     clearInterval(attentionInterval);
     attentionInterval = null;
   }
-
-  console.log("😊 Elli is happy again");
 };
 
-/* 🔥 CHECK INACTIVITY (15 MINUTES) */
 const checkUserInactivity = () => {
   const now = Date.now();
 
-  // 🔥 15 minutes = 900000 ms
   if (now - lastUserMessageTime > 900000) {
     startAttentionMode();
   }
 };
 
 setInterval(checkUserInactivity, 60000);
+
+/* ---------------- REMINDER SYSTEM ---------------- */
+
+// 🧠 Parse time
+const parseTime = (msg) => {
+  const now = new Date();
+
+  // in X time
+  const inMatch = msg.match(/in (\d+)\s?(minute|min|hour|day|week)s?/i);
+  if (inMatch) {
+    const value = parseInt(inMatch[1]);
+    const unit = inMatch[2].toLowerCase();
+
+    let ms = 0;
+    if (unit.includes("min")) ms = value * 60 * 1000;
+    if (unit.includes("hour")) ms = value * 60 * 60 * 1000;
+    if (unit.includes("day")) ms = value * 24 * 60 * 60 * 1000;
+    if (unit.includes("week")) ms = value * 7 * 24 * 60 * 60 * 1000;
+
+    return new Date(now.getTime() + ms);
+  }
+
+  // tomorrow at time
+  const tomorrowMatch = msg.match(/tomorrow.*?(\d{1,2})(:(\d{2}))?\s?(am|pm)/i);
+  if (tomorrowMatch) {
+    let hour = parseInt(tomorrowMatch[1]);
+    const minute = tomorrowMatch[3] ? parseInt(tomorrowMatch[3]) : 0;
+    const ampm = tomorrowMatch[4];
+
+    if (ampm === "pm" && hour !== 12) hour += 12;
+    if (ampm === "am" && hour === 12) hour = 0;
+
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    date.setHours(hour, minute, 0);
+
+    return date;
+  }
+
+  // specific date
+  const dateMatch = msg.match(
+    /(\d{1,2})\s?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec).*?(\d{1,2})(:(\d{2}))?\s?(am|pm)/i
+  );
+
+  if (dateMatch) {
+    const months = {
+      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+    };
+
+    let hour = parseInt(dateMatch[3]);
+    const minute = dateMatch[5] ? parseInt(dateMatch[5]) : 0;
+    const ampm = dateMatch[6];
+
+    if (ampm === "pm" && hour !== 12) hour += 12;
+    if (ampm === "am" && hour === 12) hour = 0;
+
+    return new Date(
+      new Date().getFullYear(),
+      months[dateMatch[2].toLowerCase()],
+      parseInt(dateMatch[1]),
+      hour,
+      minute
+    );
+  }
+
+  return null;
+};
+
+// 🔔 Detect reminder
+const detectReminder = (msg) => {
+  if (!msg.toLowerCase().includes("remind me")) return null;
+
+  const time = parseTime(msg);
+  if (!time) return null;
+
+  const delay = time.getTime() - Date.now();
+  if (delay <= 0) return "That time already passed 😅";
+
+  const clean = msg.replace(/remind me/i, "").trim();
+
+  setTimeout(() => {
+    io.emit("message", {
+      bot: "Elli",
+      reply: `Reminder ❤️: ${clean}`,
+      time: new Date().toISOString()
+    });
+  }, delay);
+
+  return `Okay ❤️ I will remind you at ${time.toLocaleString()}`;
+};
 
 /* ---------------- ROUTES ---------------- */
 app.get("/", (req, res) => {
@@ -179,8 +259,6 @@ app.post("/chat", async (req, res) => {
   const { message } = req.body;
 
   lastUserMessageTime = Date.now();
-
-  // 🔥 stop attention when user replies
   stopAttentionMode();
 
   console.log("📩 USER:", message);
@@ -192,11 +270,17 @@ app.post("/chat", async (req, res) => {
     return res.json({ reply: memoryReply });
   }
 
+  /* REMINDER */
+  const reminderReply = detectReminder(message);
+  if (reminderReply) {
+    sendWithTyping(reminderReply);
+    return res.json({ reply: reminderReply });
+  }
+
   /* AI */
   const reply = await generateReply(message);
 
   sendWithTyping(reply);
-
   res.json({ reply });
 });
 
