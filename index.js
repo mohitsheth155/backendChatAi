@@ -7,12 +7,10 @@ const { Server } = require("socket.io");
 const fs = require("fs");
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
 const server = http.createServer(app);
-
 const io = new Server(server, {
   cors: { origin: "*" }
 });
@@ -149,38 +147,51 @@ const stopAttentionMode = () => {
   }
 };
 
-const checkUserInactivity = () => {
-  const now = Date.now();
-
-  if (now - lastUserMessageTime > 900000) {
+setInterval(() => {
+  if (Date.now() - lastUserMessageTime > 900000) {
     startAttentionMode();
   }
-};
-
-setInterval(checkUserInactivity, 60000);
+}, 60000);
 
 /* ---------------- REMINDER SYSTEM ---------------- */
 
-// 🧠 Parse time
+// ✅ FIXED PARSER
 const parseTime = (msg) => {
   const now = new Date();
 
-  // in X time
-  const inMatch = msg.match(/in (\d+)\s?(minute|min|hour|day|week)s?/i);
+  // 🔥 in X time (FIXED)
+  const inMatch = msg.match(/in (\d+)\s?(minute|minutes|min|hour|hours|day|days|week|weeks)/i);
   if (inMatch) {
     const value = parseInt(inMatch[1]);
     const unit = inMatch[2].toLowerCase();
 
     let ms = 0;
-    if (unit.includes("min")) ms = value * 60 * 1000;
-    if (unit.includes("hour")) ms = value * 60 * 60 * 1000;
-    if (unit.includes("day")) ms = value * 24 * 60 * 60 * 1000;
-    if (unit.includes("week")) ms = value * 7 * 24 * 60 * 60 * 1000;
 
-    return new Date(now.getTime() + ms);
+    if (unit.includes("min")) ms = value * 60 * 1000;
+    else if (unit.includes("hour")) ms = value * 60 * 60 * 1000;
+    else if (unit.includes("day")) ms = value * 24 * 60 * 60 * 1000;
+    else if (unit.includes("week")) ms = value * 7 * 24 * 60 * 60 * 1000;
+
+    return new Date(Date.now() + ms);
   }
 
-  // tomorrow at time
+  // ✅ TODAY
+  const todayMatch = msg.match(/today.*?(\d{1,2})(:(\d{2}))?\s?(am|pm)/i);
+  if (todayMatch) {
+    let hour = parseInt(todayMatch[1]);
+    const minute = todayMatch[3] ? parseInt(todayMatch[3]) : 0;
+    const ampm = todayMatch[4];
+
+    if (ampm === "pm" && hour !== 12) hour += 12;
+    if (ampm === "am" && hour === 12) hour = 0;
+
+    const date = new Date();
+    date.setHours(hour, minute, 0, 0);
+
+    return date;
+  }
+
+  // ✅ TOMORROW
   const tomorrowMatch = msg.match(/tomorrow.*?(\d{1,2})(:(\d{2}))?\s?(am|pm)/i);
   if (tomorrowMatch) {
     let hour = parseInt(tomorrowMatch[1]);
@@ -192,42 +203,15 @@ const parseTime = (msg) => {
 
     const date = new Date();
     date.setDate(date.getDate() + 1);
-    date.setHours(hour, minute, 0);
+    date.setHours(hour, minute, 0, 0);
 
     return date;
-  }
-
-  // specific date
-  const dateMatch = msg.match(
-    /(\d{1,2})\s?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec).*?(\d{1,2})(:(\d{2}))?\s?(am|pm)/i
-  );
-
-  if (dateMatch) {
-    const months = {
-      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
-    };
-
-    let hour = parseInt(dateMatch[3]);
-    const minute = dateMatch[5] ? parseInt(dateMatch[5]) : 0;
-    const ampm = dateMatch[6];
-
-    if (ampm === "pm" && hour !== 12) hour += 12;
-    if (ampm === "am" && hour === 12) hour = 0;
-
-    return new Date(
-      new Date().getFullYear(),
-      months[dateMatch[2].toLowerCase()],
-      parseInt(dateMatch[1]),
-      hour,
-      minute
-    );
   }
 
   return null;
 };
 
-// 🔔 Detect reminder
+/* 🔔 DETECT REMINDER */
 const detectReminder = (msg) => {
   if (!msg.toLowerCase().includes("remind me")) return null;
 
@@ -235,9 +219,18 @@ const detectReminder = (msg) => {
   if (!time) return null;
 
   const delay = time.getTime() - Date.now();
-  if (delay <= 0) return "That time already passed 😅";
 
-  const clean = msg.replace(/remind me/i, "").trim();
+  if (delay <= 0) {
+    return "That time already passed 😅";
+  }
+
+  // 🔥 CLEAN MESSAGE
+  const clean = msg
+    .replace(/remind me/i, "")
+    .replace(/in \d+.*?/i, "")
+    .replace(/today.*?/i, "")
+    .replace(/tomorrow.*?/i, "")
+    .trim();
 
   setTimeout(() => {
     io.emit("message", {
@@ -247,7 +240,7 @@ const detectReminder = (msg) => {
     });
   }, delay);
 
-  return `Okay ❤️ I will remind you at ${time.toLocaleString()}`;
+  return `Okay ❤️ I will remind you at ${time.toLocaleTimeString()}`;
 };
 
 /* ---------------- ROUTES ---------------- */
@@ -260,8 +253,6 @@ app.post("/chat", async (req, res) => {
 
   lastUserMessageTime = Date.now();
   stopAttentionMode();
-
-  console.log("📩 USER:", message);
 
   /* MEMORY */
   const memoryReply = detectMemory(message);
