@@ -19,12 +19,12 @@ const io = new Server(server, {
 let lastUserMessageTime = Date.now();
 let elliStatus = "inactive";
 
-/* 🔥 RANDOM ATTENTION TIMER */
+/* 🔥 RANDOM ATTENTION TIMER (2–6 MIN) */
 let nextAttentionTime = getRandomTime();
 
 function getRandomTime() {
-  const min = 300000;   // 5 min
-  const max = 1200000;  // 20 min
+  const min = 120000;  // 2 min
+  const max = 360000;  // 6 min
   return Math.floor(Math.random() * (max - min) + min);
 }
 
@@ -118,9 +118,9 @@ const startAttention = () => {
 
   attentionInterval = setInterval(() => {
     send("Hey… are you there? 🥺");
-  }, 20000);
+  }, 15000); // faster (15 sec)
 
-  setTimeout(stopAttention, 120000);
+  setTimeout(stopAttention, 90000); // 1.5 min
 };
 
 const stopAttention = () => {
@@ -132,27 +132,26 @@ const stopAttention = () => {
 setInterval(() => {
   if (Date.now() - lastUserMessageTime > nextAttentionTime) {
     startAttention();
-
-    // generate new random time
-    nextAttentionTime = getRandomTime();
+    nextAttentionTime = getRandomTime(); // reset random
   }
-}, 60000);
+}, 30000); // check every 30 sec (faster)
 
-/* ---------------- AUTO CHAT ---------------- */
+/* ---------------- AUTO CHAT (FASTER) ---------------- */
 const autoMessages = [
   "Hey love ❤️ what are you doing?",
   "I miss you 🥺",
   "Tell me something 😊",
-  "Why so quiet? 😔"
+  "Why so quiet? 😔",
+  "Come talk to me na ❤️"
 ];
 
 setInterval(() => {
-  if (Date.now() - lastUserMessageTime > 120000) {
+  if (Date.now() - lastUserMessageTime > 60000) { // 1 min
     const msg =
       autoMessages[Math.floor(Math.random() * autoMessages.length)];
     send(msg);
   }
-}, 180000);
+}, 120000); // every 2 min
 
 /* ---------------- DAILY ROUTINE ---------------- */
 let lastGreeting = null;
